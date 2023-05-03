@@ -17,6 +17,7 @@ struct ip_hdr
 };
 */
 char *banstr;
+int warning;
 unsigned char * jmp_to_http(unsigned char *p, int maxlen)
 {
 	unsigned char *now = p;
@@ -27,7 +28,6 @@ unsigned char * jmp_to_http(unsigned char *p, int maxlen)
 	tcp_hdrlen = *(now+12) >> 4;
 	tcp_hdrlen *= 4;
 	now += tcp_hdrlen;
-	printf("%x - %x = %x > %x\n", now, p, now-p, maxlen);
 	if(now - p >= maxlen) return NULL;
 	return now;
 }
@@ -35,10 +35,19 @@ int checklist(unsigned char *p, int max)
 {
 	unsigned char *now = p;
 	int i;
-	int cnt;
+	int cnt = 0;
+	int len = strlen(banstr) - 1;
 	for(i=0; i<=max; i++)
 	{
+		if(*(p+i) == banstr[cnt])
+		{
+			if(cnt >= len) return 1;
+			cnt++;
+		}
+		else cnt = 0;
+		if(*(p+i) == 0x0d && *(p+i+1) == 0x0a) break;
 	}
+	return 0;
 }
 void dump(unsigned char* buf, int size) {
 	int i;
@@ -64,70 +73,71 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	ph = nfq_get_msg_packet_hdr(tb);
 	if (ph) {
 		id = ntohl(ph->packet_id);
+		/*
 		printf("hw_protocol=0x%04x hook=%u id=%u ",
 			ntohs(ph->hw_protocol), ph->hook, id);
+			*/
 	}
 
 	hwph = nfq_get_packet_hw(tb);
 	if (hwph) {
 		int i, hlen = ntohs(hwph->hw_addrlen);
+		/*
 		printf("hw_src_addr=");
 		for (i = 0; i < hlen-1; i++)
 			printf("%02x:", hwph->hw_addr[i]);
 		printf("%02x ", hwph->hw_addr[hlen-1]);
+		*/
 	}
 
 	mark = nfq_get_nfmark(tb);
+	/*
 	if (mark)
-		printf("mark=%u ", mark);
+		printf("mark=%u ", mark);*/
 
 	ifi = nfq_get_indev(tb);
+	/*
 	if (ifi)
-		printf("indev=%u ", ifi);
+		printf("indev=%u ", ifi);*/
 
 	ifi = nfq_get_outdev(tb);
+	/*
 	if (ifi)
-		printf("outdev=%u ", ifi);
+		printf("outdev=%u ", ifi);*/
+
 	ifi = nfq_get_physindev(tb);
+	/*
 	if (ifi)
-		printf("physindev=%u ", ifi);
+		printf("physindev=%u ", ifi);*/
 
 	ifi = nfq_get_physoutdev(tb);
+	/*
 	if (ifi)
-		printf("physoutdev=%u ", ifi);
+		printf("physoutdev=%u ", ifi);*/
 
 	ret = nfq_get_payload(tb, &data);
 	if (ret >= 0)
-	{
-		printf("\n***%x -> %x***\n", data, data+1);
-		printf("%x + %x -> %x\n", data, ret, data + ret);
-		
+	{	
 		unsigned char * point = jmp_to_http(data, ret);
 		if(point == NULL)
 		{
-			printf("Wrong Type!\n");
+			printf(".\n");
 		}
-		printf("!!!!!!!!! %x !!!!!!!!!\n", *point);
-		dump(data, ret);
 		else
 		{
 			
-			while(1)
+			while(point - data < ret)
 			{
-				point++;
-				if(point - data >= ret)
-				{
-					printf("packet over\n");
-					break;
-				}
+				point = point + 1;
 				if(*(point-1) == 0x0d && *point == 0x0a)
 				{
-					checklist(point+1, data + ret - point - 1);
+					warning = checklist(point+1, data + ret - point - 1);
 					break;
 				}
 			}
 		}
-		printf("npayload_len=%d\n", ret);
+		//dump(data, ret);
+		//printf("npayload_len=%d\n", ret);
 	}
 	fputc('\n', stdout);
 
@@ -138,8 +148,14 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	      struct nfq_data *nfa, void *data)
 {
+	warning = 0;
 	u_int32_t id = print_pkt(nfa);
-	printf("entering callback\n");
+	//printf("entering callback\n");
+	if(warning == 1)
+	{
+		printf("[Warning] Block suspicious sites!\n");
+		return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+	}
 	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
@@ -196,7 +212,7 @@ int main(int argc, char **argv)
 
 	for (;;) {
 		if ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
-			printf("pkt received\n");
+			//printf("pkt received\n");
 			nfq_handle_packet(h, buf, rv);
 			continue;
 		}
