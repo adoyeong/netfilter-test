@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <netinet/in.h>
@@ -7,7 +8,38 @@
 #include <errno.h>
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
-
+/*
+struct ip_hdr
+{
+	u_int8_t ver_hdrlen;
+	u_int8_t tos;
+	u_int16_t totallen;
+};
+*/
+char *banstr;
+unsigned char * jmp_to_http(unsigned char *p, int maxlen)
+{
+	unsigned char *now = p;
+	unsigned char ip_hdrlen, tcp_hdrlen;
+	ip_hdrlen = *now & 0x0F;
+	ip_hdrlen *= 4;
+	now += ip_hdrlen;
+	tcp_hdrlen = *(now+12) >> 4;
+	tcp_hdrlen *= 4;
+	now += tcp_hdrlen;
+	printf("%x - %x = %x > %x\n", now, p, now-p, maxlen);
+	if(now - p >= maxlen) return NULL;
+	return now;
+}
+int checklist(unsigned char *p, int max)
+{
+	unsigned char *now = p;
+	int i;
+	int cnt;
+	for(i=0; i<=max; i++)
+	{
+	}
+}
 void dump(unsigned char* buf, int size) {
 	int i;
 	printf("\n");
@@ -39,7 +71,6 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	hwph = nfq_get_packet_hw(tb);
 	if (hwph) {
 		int i, hlen = ntohs(hwph->hw_addrlen);
-
 		printf("hw_src_addr=");
 		for (i = 0; i < hlen-1; i++)
 			printf("%02x:", hwph->hw_addr[i]);
@@ -68,7 +99,34 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	ret = nfq_get_payload(tb, &data);
 	if (ret >= 0)
 	{
+		printf("\n***%x -> %x***\n", data, data+1);
+		printf("%x + %x -> %x\n", data, ret, data + ret);
+		
+		unsigned char * point = jmp_to_http(data, ret);
+		if(point == NULL)
+		{
+			printf("Wrong Type!\n");
+		}
+		printf("!!!!!!!!! %x !!!!!!!!!\n", *point);
 		dump(data, ret);
+		else
+		{
+			
+			while(1)
+			{
+				point++;
+				if(point - data >= ret)
+				{
+					printf("packet over\n");
+					break;
+				}
+				if(*(point-1) == 0x0d && *point == 0x0a)
+				{
+					checklist(point+1, data + ret - point - 1);
+					break;
+				}
+			}
+		}
 		printf("npayload_len=%d\n", ret);
 	}
 	fputc('\n', stdout);
@@ -93,6 +151,14 @@ int main(int argc, char **argv)
 	int fd;
 	int rv;
 	char buf[4096] __attribute__ ((aligned));
+
+	if(argc != 2)
+	{
+		printf("syntax error\n");
+		printf("syntax : netfilter-test <host>\nsample : netfilter-test test.gilgil.net");
+		return -1;
+	}
+	banstr = argv[1];
 
 	printf("opening library handle\n");
 	h = nfq_open();
