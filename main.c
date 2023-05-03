@@ -121,7 +121,7 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		unsigned char * point = jmp_to_http(data, ret);
 		if(point == NULL)
 		{
-			printf(".\n");
+			printf(".");
 		}
 		else
 		{
